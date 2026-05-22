@@ -1,6 +1,6 @@
 //! Builder of Provider
 
-use crate::{Completion, Error, Model, Provider, Result};
+use crate::{Agent, Error, Model, Provider, Result};
 use rig::{
     agent::{Agent as RigAgent, AgentBuilder},
     client::CompletionClient,
@@ -128,7 +128,7 @@ impl ProviderBuilder {
     }
 
     /// 校验配置并构造统一的 [`Agent`]。
-    pub fn build(self) -> Result<Completion> {
+    pub fn build(self) -> Result<Agent> {
         let ProviderBuilder {
             provider,
             api_key,
@@ -169,7 +169,7 @@ impl ProviderBuilder {
                     OpenAiApi::Responses => {
                         let client =
                             openai::Client::new(key).map_err(|e| Error::Rig(e.to_string()))?;
-                        Completion::OpenAIResponses(finish(
+                        Agent::OpenAIResponses(finish(
                             client.agent(m.id()),
                             preamble,
                             temperature,
@@ -181,7 +181,7 @@ impl ProviderBuilder {
                         let client = openai::Client::new(key)
                             .map_err(|e| Error::Rig(e.to_string()))?
                             .completions_api();
-                        Completion::OpenAICompletions(finish(
+                        Agent::OpenAICompletions(finish(
                             client.agent(m.id()),
                             preamble,
                             temperature,
@@ -199,7 +199,7 @@ impl ProviderBuilder {
                     .anthropic_version(version.as_str())
                     .build()
                     .map_err(|e| Error::Rig(e.to_string()))?;
-                Completion::Anthropic(finish(
+                Agent::Anthropic(finish(
                     client.agent(m.id()),
                     preamble,
                     temperature,
@@ -210,7 +210,7 @@ impl ProviderBuilder {
             Model::Gemini(m) => {
                 let key = resolve_key(provider, &api_key)?;
                 let client = gemini::Client::new(key).map_err(|e| Error::Rig(e.to_string()))?;
-                Completion::Gemini(finish(
+                Agent::Gemini(finish(
                     client.agent(m.id()),
                     preamble,
                     temperature,
@@ -221,7 +221,7 @@ impl ProviderBuilder {
             Model::DeepSeek(m) => {
                 let key = resolve_key(provider, &api_key)?;
                 let client = deepseek::Client::new(key).map_err(|e| Error::Rig(e.to_string()))?;
-                Completion::DeepSeek(finish(
+                Agent::DeepSeek(finish(
                     client.agent(m.id()),
                     preamble,
                     temperature,
@@ -238,7 +238,7 @@ impl ProviderBuilder {
                     .base_url(&url)
                     .build()
                     .map_err(|e| Error::Rig(e.to_string()))?;
-                Completion::Ollama(finish(
+                Agent::Ollama(finish(
                     client.agent(m.id()),
                     preamble,
                     temperature,
@@ -248,14 +248,23 @@ impl ProviderBuilder {
             }
             Model::Compatible(id) => {
                 let key = resolve_key(provider, &api_key)?;
-                let url = base_url.clone().ok_or(Error::MissingBaseURL)?;
+                let url = {
+                    if let Some(base_url) = &base_url {
+                        resolve_base_url(base_url)
+                    } else if let Ok(env_base_url) = std::env::var("LLM_BASE_URL") {
+                        resolve_base_url(&env_base_url)
+                    } else {
+                        return Err(Error::MissingBaseURL);
+                    }
+                };
+
                 let client = openai::Client::builder()
                     .api_key(key)
                     .base_url(&url)
                     .build()
                     .map_err(|e| Error::Rig(e.to_string()))?
                     .completions_api();
-                Completion::OpenAICompletions(finish(
+                Agent::OpenAICompletions(finish(
                     client.agent(id),
                     preamble,
                     temperature,
@@ -281,6 +290,18 @@ fn resolve_key(provider: Provider, api_key: &Option<String>) -> Result<String> {
         return Ok(value);
     }
     Err(Error::MissingApiKey(provider))
+}
+
+fn resolve_base_url(base_url: &str) -> String {
+    if !(base_url.ends_with("v1") || base_url.ends_with("v1/")) {
+        if !base_url.ends_with("/") {
+            format!("{}/v1", base_url)
+        } else {
+            format!("{}v1", base_url)
+        }
+    } else {
+        base_url.to_string()
+    }
 }
 
 /// 把公共配置应用到 rig 的 [`AgentBuilder`] 并构建。
@@ -361,7 +382,7 @@ mod tests {
             .preamble("hi")
             .build()
             .expect("build should succeed with a fake key");
-        assert!(matches!(agent, crate::Completion::OpenAIResponses(_)));
+        assert!(matches!(agent, crate::Agent::OpenAIResponses(_)));
     }
 
     #[test]
@@ -372,7 +393,7 @@ mod tests {
             .completions_api()
             .build()
             .expect("build should succeed");
-        assert!(matches!(agent, crate::Completion::OpenAICompletions(_)));
+        assert!(matches!(agent, crate::Agent::OpenAICompletions(_)));
     }
 
     #[test]
@@ -383,6 +404,6 @@ mod tests {
             .model(Model::Compatible("some-model".into()))
             .build()
             .expect("build should succeed");
-        assert!(matches!(agent, crate::Completion::OpenAICompletions(_)));
+        assert!(matches!(agent, crate::Agent::OpenAICompletions(_)));
     }
 }

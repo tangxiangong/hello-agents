@@ -1,4 +1,4 @@
-//! Provider / Model / Completion 统一封装层
+//! Provider / Model / Agent 统一封装层
 
 mod builder;
 pub use builder::*;
@@ -44,7 +44,7 @@ impl Provider {
         ProviderBuilder::new(*self)
     }
 
-    pub fn agent(&self, model: model::Model) -> Result<Completion> {
+    pub fn agent(&self, model: model::Model) -> Result<Agent> {
         self.builder().model(model).build()
     }
 
@@ -82,7 +82,7 @@ impl FromStr for Provider {
     }
 }
 
-pub enum Completion {
+pub enum Agent {
     OpenAIResponses(RigAgent<CompletionModel<openai::Client>>),
     OpenAICompletions(RigAgent<CompletionModel<openai::CompletionsClient>>),
     Anthropic(RigAgent<CompletionModel<anthropic::Client>>),
@@ -91,16 +91,16 @@ pub enum Completion {
     Ollama(RigAgent<CompletionModel<ollama::Client>>),
 }
 
-impl Completion {
+impl Agent {
     /// 单轮提示:把回复作为字符串返回。
     pub async fn prompt(&self, input: &str) -> Result<String> {
         let res = match self {
-            Completion::OpenAIResponses(a) => a.prompt(input).await,
-            Completion::OpenAICompletions(a) => a.prompt(input).await,
-            Completion::Anthropic(a) => a.prompt(input).await,
-            Completion::Gemini(a) => a.prompt(input).await,
-            Completion::DeepSeek(a) => a.prompt(input).await,
-            Completion::Ollama(a) => a.prompt(input).await,
+            Agent::OpenAIResponses(a) => a.prompt(input).await,
+            Agent::OpenAICompletions(a) => a.prompt(input).await,
+            Agent::Anthropic(a) => a.prompt(input).await,
+            Agent::Gemini(a) => a.prompt(input).await,
+            Agent::DeepSeek(a) => a.prompt(input).await,
+            Agent::Ollama(a) => a.prompt(input).await,
         };
         res.map_err(|e| Error::Rig(e.to_string()))
     }
@@ -108,12 +108,12 @@ impl Completion {
     /// 多轮提示:允许最多 `max_turns` 轮工具调用循环。
     pub async fn multi_turn(&self, input: &str, max_turns: usize) -> crate::Result<String> {
         let res = match self {
-            Completion::OpenAIResponses(a) => a.prompt(input).max_turns(max_turns).await,
-            Completion::OpenAICompletions(a) => a.prompt(input).max_turns(max_turns).await,
-            Completion::Anthropic(a) => a.prompt(input).max_turns(max_turns).await,
-            Completion::Gemini(a) => a.prompt(input).max_turns(max_turns).await,
-            Completion::DeepSeek(a) => a.prompt(input).max_turns(max_turns).await,
-            Completion::Ollama(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::OpenAIResponses(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::OpenAICompletions(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::Anthropic(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::Gemini(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::DeepSeek(a) => a.prompt(input).max_turns(max_turns).await,
+            Agent::Ollama(a) => a.prompt(input).max_turns(max_turns).await,
         };
         res.map_err(|e| Error::Rig(e.to_string()))
     }
@@ -174,7 +174,7 @@ mod tests {
         let agent = Provider::OpenAI
             .agent(Model::OpenAI(OpenAIModel::GPT_5))
             .expect("shortcut build should succeed");
-        assert!(matches!(agent, crate::Completion::OpenAIResponses(_)));
+        assert!(matches!(agent, crate::Agent::OpenAIResponses(_)));
     }
 
     #[test]
@@ -189,6 +189,6 @@ mod tests {
             .max_tokens(1024)
             .build()
             .expect("builder entrypoint should succeed");
-        assert!(matches!(agent, crate::Completion::Anthropic(_)));
+        assert!(matches!(agent, crate::Agent::Anthropic(_)));
     }
 }

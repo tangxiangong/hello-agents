@@ -52,22 +52,14 @@ impl App {
     }
 
     pub async fn run(&self, prompt: &str) -> Result<String> {
-        let provider = self.provider();
-
-        let agent = provider.agent(self.model.clone())?;
-
-        agent.prompt(prompt).await
-    }
-
-    pub async fn get_weather(model: Model, input: &str) -> Result<String> {
-        let agent = model
+        let agent = self
             .provider()
             .builder()
-            .model(model)
+            .model(self.model.clone())
             .preamble(AGENT_SYSTEM_PROMPT)
             .tool(Weather)
             .build()?;
 
-        agent.prompt(input).await
+        agent.prompt(prompt).await
     }
 }
