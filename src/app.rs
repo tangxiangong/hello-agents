@@ -3,6 +3,8 @@ use crate::{
     tools::{weather::Weather, web_search::WebSearch},
 };
 
+const DEFAULT_MAX_TURNS: usize = 8;
+
 const AGENT_SYSTEM_PROMPT: &str = r#"
 你是一个智能旅行助手。你的任务是分析用户的请求，并使用可用工具一步步地解决问题。
 
@@ -55,6 +57,25 @@ impl App {
     }
 
     pub async fn run(&self, prompt: &str) -> Result<String> {
+        self.build_agent()?.prompt(prompt).await
+    }
+
+    pub async fn stream<F>(&self, prompt: &str, on_text: F) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        self.build_agent()?
+            .stream(prompt, DEFAULT_MAX_TURNS, on_text)
+            .await
+    }
+
+    pub async fn stream_to_stdout(&self, prompt: &str) -> Result<String> {
+        self.build_agent()?
+            .stream_to_stdout(prompt, DEFAULT_MAX_TURNS)
+            .await
+    }
+
+    fn build_agent(&self) -> Result<crate::Agent> {
         let mut provider = self
             .provider()
             .builder()
@@ -66,7 +87,6 @@ impl App {
             provider = provider.tool(WebSearch::new(api_key));
         }
 
-        let agent = provider.build()?;
-        agent.prompt(prompt).await
+        provider.build()
     }
 }

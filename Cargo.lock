@@ -3140,6 +3140,7 @@ name = "hello-agents"
 version = "0.1.0"
 dependencies = [
  "dotenvy",
+ "futures-util",
  "reqwest 0.13.3",
  "rig",
  "serde",

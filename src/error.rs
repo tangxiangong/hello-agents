@@ -26,6 +26,9 @@ pub enum Error {
     #[error("rig error: {0}")]
     Rig(String),
 
+    #[error("I/O error: {0}")]
+    Io(String),
+
     #[error("missing base URL")]
     MissingBaseURL,
 
@@ -39,6 +42,12 @@ pub enum Error {
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::RequestError(e.to_string())
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e.to_string())
     }
 }
 
@@ -87,5 +96,9 @@ mod tests {
             "option `openai_api` is not valid for provider Anthropic"
         );
         assert_eq!(Error::Rig("boom".into()).to_string(), "rig error: boom");
+        assert_eq!(
+            Error::Io("broken pipe".into()).to_string(),
+            "I/O error: broken pipe"
+        );
     }
 }

@@ -6,15 +6,18 @@ mod model;
 pub use model::*;
 
 use crate::{Error, Result};
+use futures_util::StreamExt;
 use rig::{
-    agent::Agent as RigAgent,
+    agent::{Agent as RigAgent, MultiTurnStreamItem},
     client::CompletionClient,
-    completion::Prompt,
+    completion::{CompletionModel as RigCompletionModel, GetTokenUsage, Prompt},
     providers::{anthropic, deepseek, gemini, ollama, openai},
+    streaming::{StreamedAssistantContent, StreamingPrompt},
+    wasm_compat::WasmCompatSend,
 };
-use std::str::FromStr;
+use std::{io::Write, str::FromStr};
 
-type CompletionModel<C> = <C as CompletionClient>::CompletionModel;
+type ProviderCompletionModel<C> = <C as CompletionClient>::CompletionModel;
 
 /// LLM Provider
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,12 +86,12 @@ impl FromStr for Provider {
 }
 
 pub enum Agent {
-    OpenAIResponses(RigAgent<CompletionModel<openai::Client>>),
-    OpenAICompletions(RigAgent<CompletionModel<openai::CompletionsClient>>),
-    Anthropic(RigAgent<CompletionModel<anthropic::Client>>),
-    Gemini(RigAgent<CompletionModel<gemini::Client>>),
-    DeepSeek(RigAgent<CompletionModel<deepseek::Client>>),
-    Ollama(RigAgent<CompletionModel<ollama::Client>>),
+    OpenAIResponses(RigAgent<ProviderCompletionModel<openai::Client>>),
+    OpenAICompletions(RigAgent<ProviderCompletionModel<openai::CompletionsClient>>),
+    Anthropic(RigAgent<ProviderCompletionModel<anthropic::Client>>),
+    Gemini(RigAgent<ProviderCompletionModel<gemini::Client>>),
+    DeepSeek(RigAgent<ProviderCompletionModel<deepseek::Client>>),
+    Ollama(RigAgent<ProviderCompletionModel<ollama::Client>>),
 }
 
 impl Agent {
@@ -117,6 +120,67 @@ impl Agent {
         };
         res.map_err(|e| Error::Rig(e.to_string()))
     }
+
+    /// 流式提示:每收到一段文本增量就调用 `on_text`,并在结束时返回最终回复。
+    pub async fn stream<F>(&self, input: &str, max_turns: usize, mut on_text: F) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        match self {
+            Agent::OpenAIResponses(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+            Agent::OpenAICompletions(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+            Agent::Anthropic(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+            Agent::Gemini(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+            Agent::DeepSeek(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+            Agent::Ollama(a) => stream_agent(a, input, max_turns, &mut on_text).await,
+        }
+    }
+
+    /// 流式提示并把文本增量直接写到标准输出。
+    pub async fn stream_to_stdout(&self, input: &str, max_turns: usize) -> Result<String> {
+        let mut stdout = std::io::stdout();
+        let response = self
+            .stream(input, max_turns, |chunk| {
+                print!("{chunk}");
+                stdout.flush().map_err(Error::from)
+            })
+            .await?;
+        println!();
+        Ok(response)
+    }
+}
+
+async fn stream_agent<M, F>(
+    agent: &RigAgent<M>,
+    input: &str,
+    max_turns: usize,
+    on_text: &mut F,
+) -> Result<String>
+where
+    M: RigCompletionModel + 'static,
+    M::StreamingResponse: GetTokenUsage + WasmCompatSend,
+    F: FnMut(&str) -> Result<()>,
+{
+    let mut stream = agent.stream_prompt(input).multi_turn(max_turns).await;
+    let mut streamed_text = String::new();
+    let mut final_response = None;
+
+    while let Some(item) = stream.next().await {
+        match item.map_err(|e| Error::Rig(e.to_string()))? {
+            MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text)) => {
+                on_text(&text.text)?;
+                streamed_text.push_str(&text.text);
+            }
+            MultiTurnStreamItem::FinalResponse(response) => {
+                final_response = Some(response.response().to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    Ok(final_response
+        .filter(|response| !response.is_empty())
+        .unwrap_or(streamed_text))
 }
 
 #[cfg(test)]
@@ -169,7 +233,7 @@ mod tests {
     fn provider_agent_shortcut_builds() {
         use crate::{Model, OpenAIModel};
         unsafe {
-            std::env::set_var("LLM_API_KEY", "fake-key");
+            std::env::set_var("OPENAI_API_KEY", "fake-key");
         }
         let agent = Provider::OpenAI
             .agent(Model::OpenAI(OpenAIModel::GPT_5))
@@ -181,7 +245,7 @@ mod tests {
     fn provider_builder_entrypoint_builds() {
         use crate::AnthropicModel;
         unsafe {
-            std::env::set_var("LLM_API_KEY", "fake-key");
+            std::env::set_var("ANTHROPIC_API_KEY", "fake-key");
         }
         let agent = Provider::Anthropic
             .builder()
