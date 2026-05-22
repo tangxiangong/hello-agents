@@ -1,4 +1,7 @@
-use crate::{Config, Model, Provider, Result, tools::weather::Weather};
+use crate::{
+    Config, Model, Provider, Result,
+    tools::{weather::Weather, web_search::WebSearch},
+};
 
 const AGENT_SYSTEM_PROMPT: &str = r#"
 你是一个智能旅行助手。你的任务是分析用户的请求，并使用可用工具一步步地解决问题。
@@ -52,14 +55,18 @@ impl App {
     }
 
     pub async fn run(&self, prompt: &str) -> Result<String> {
-        let agent = self
+        let mut provider = self
             .provider()
             .builder()
             .model(self.model.clone())
             .preamble(AGENT_SYSTEM_PROMPT)
-            .tool(Weather)
-            .build()?;
+            .tool(Weather);
 
+        if let Some(api_key) = self.config.tavily_api_key() {
+            provider = provider.tool(WebSearch::new(api_key));
+        }
+
+        let agent = provider.build()?;
         agent.prompt(prompt).await
     }
 }

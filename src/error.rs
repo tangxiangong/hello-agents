@@ -31,11 +31,20 @@ pub enum Error {
 
     #[error("reqwest error: {0}")]
     RequestError(String),
+
+    #[error("tavily error: {0}")]
+    TavilyError(String),
 }
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::RequestError(e.to_string())
+    }
+}
+
+impl From<tavily::TavilyError> for Error {
+    fn from(e: tavily::TavilyError) -> Self {
+        Error::TavilyError(e.to_string())
     }
 }
 
