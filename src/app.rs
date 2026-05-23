@@ -1,6 +1,6 @@
 use crate::{
     Config, Model, Provider, Result,
-    tools::{search_attraction::SearchAttraction, weather::Weather, web_search::WebSearch},
+    tools::{SearchAttraction, Weather, WebSearch},
 };
 
 const DEFAULT_MAX_TURNS: usize = 8;
