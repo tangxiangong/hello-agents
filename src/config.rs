@@ -1,6 +1,5 @@
 use crate::Provider;
 
-#[allow(dead_code)]
 pub struct Config {
     tavily_api_key: Option<String>,
     provider: Provider,
@@ -22,7 +21,6 @@ impl Config {
         self.provider
     }
 
-    #[allow(unused)]
     pub(crate) fn tavily_api_key(&self) -> Option<&str> {
         self.tavily_api_key.as_deref()
     }
