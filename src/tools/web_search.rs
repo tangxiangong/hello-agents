@@ -1,13 +1,12 @@
-use std::time::Duration;
-
 use crate::Error;
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tavily::Tavily;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WebSearchArg {
-    city: String,
+    query: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,9 +45,9 @@ impl Tool for WebSearch {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "city": {
+                    "query": {
                         "type": "string",
-                        "description": "The city to get the weather for"
+                        "description": "The query to search for"
                     }
                 },
                 "required": ["query"]
@@ -57,6 +56,6 @@ impl Tool for WebSearch {
     }
 
     async fn call(&self, args: WebSearchArg) -> Result<String, Error> {
-        self.query(&args.city).await
+        self.query(&args.query).await
     }
 }
