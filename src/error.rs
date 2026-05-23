@@ -37,6 +37,9 @@ pub enum Error {
 
     #[error("tavily error: {0}")]
     TavilyError(String),
+
+    #[error("serpapi error: {0}")]
+    SerpApiError(String),
 }
 
 impl From<reqwest::Error> for Error {

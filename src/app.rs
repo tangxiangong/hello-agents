@@ -1,6 +1,6 @@
 use crate::{
     ChatHistory, Config, Model, Provider, Result,
-    tools::{SearchAttraction, Weather, WebSearch},
+    tools::{GoogleSearch, SearchAttraction, Weather, WebSearch},
 };
 
 const DEFAULT_MAX_TURNS: usize = 8;
@@ -121,6 +121,10 @@ impl App {
             provider = provider
                 .tool(WebSearch::new(api_key))
                 .tool(SearchAttraction::new(api_key));
+        }
+
+        if let Some(api_key) = self.config.serpapi_api_key() {
+            provider = provider.tool(GoogleSearch::new(api_key));
         }
 
         provider.build()
