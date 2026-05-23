@@ -1,6 +1,6 @@
 use crate::{
     Config, Model, Provider, Result,
-    tools::{weather::Weather, web_search::WebSearch},
+    tools::{search_attraction::SearchAttraction, weather::Weather, web_search::WebSearch},
 };
 
 const DEFAULT_MAX_TURNS: usize = 8;
@@ -84,7 +84,9 @@ impl App {
             .tool(Weather);
 
         if let Some(api_key) = self.config.tavily_api_key() {
-            provider = provider.tool(WebSearch::new(api_key));
+            provider = provider
+                .tool(WebSearch::new(api_key))
+                .tool(SearchAttraction::new(api_key));
         }
 
         provider.build()
