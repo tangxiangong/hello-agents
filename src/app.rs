@@ -1,5 +1,5 @@
 use crate::{
-    Config, Model, Provider, Result,
+    ChatHistory, Config, Model, Provider, Result,
     tools::{SearchAttraction, Weather, WebSearch},
 };
 
@@ -56,8 +56,18 @@ impl App {
         self.model.provider()
     }
 
+    pub fn new_chat_history(&self) -> ChatHistory {
+        Vec::new()
+    }
+
     pub async fn run(&self, prompt: &str) -> Result<String> {
         self.build_agent()?.prompt(prompt).await
+    }
+
+    pub async fn chat(&self, prompt: &str, history: &mut ChatHistory) -> Result<String> {
+        self.build_agent()?
+            .chat(prompt, DEFAULT_MAX_TURNS, history)
+            .await
     }
 
     pub async fn stream<F>(&self, prompt: &str, on_text: F) -> Result<String>
@@ -69,9 +79,33 @@ impl App {
             .await
     }
 
+    pub async fn stream_chat<F>(
+        &self,
+        prompt: &str,
+        history: &mut ChatHistory,
+        on_text: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        self.build_agent()?
+            .stream_chat(prompt, DEFAULT_MAX_TURNS, history, on_text)
+            .await
+    }
+
     pub async fn stream_to_stdout(&self, prompt: &str) -> Result<String> {
         self.build_agent()?
             .stream_to_stdout(prompt, DEFAULT_MAX_TURNS)
+            .await
+    }
+
+    pub async fn stream_chat_to_stdout(
+        &self,
+        prompt: &str,
+        history: &mut ChatHistory,
+    ) -> Result<String> {
+        self.build_agent()?
+            .stream_chat_to_stdout(prompt, DEFAULT_MAX_TURNS, history)
             .await
     }
 

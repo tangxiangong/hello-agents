@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use rig::{
     agent::{Agent as RigAgent, MultiTurnStreamItem},
     client::CompletionClient,
-    completion::{CompletionModel as RigCompletionModel, GetTokenUsage, Prompt},
+    completion::{CompletionModel as RigCompletionModel, GetTokenUsage, Message, Prompt},
     providers::{anthropic, deepseek, gemini, ollama, openai},
     streaming::{StreamedAssistantContent, StreamingPrompt},
     wasm_compat::WasmCompatSend,
@@ -18,6 +18,9 @@ use rig::{
 use std::{io::Write, str::FromStr};
 
 type ProviderCompletionModel<C> = <C as CompletionClient>::CompletionModel;
+
+/// 跨请求连续对话历史。调用方需要在同一个会话中复用它。
+pub type ChatHistory = Vec<Message>;
 
 /// LLM Provider
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -121,6 +124,23 @@ impl Agent {
         res.map_err(|e| Error::Rig(e.to_string()))
     }
 
+    /// 连续对话:调用方复用同一个 `history`,即可让后续输入带上之前上下文。
+    pub async fn chat(
+        &self,
+        input: &str,
+        max_turns: usize,
+        history: &mut ChatHistory,
+    ) -> Result<String> {
+        match self {
+            Agent::OpenAIResponses(a) => chat_agent(a, input, max_turns, history).await,
+            Agent::OpenAICompletions(a) => chat_agent(a, input, max_turns, history).await,
+            Agent::Anthropic(a) => chat_agent(a, input, max_turns, history).await,
+            Agent::Gemini(a) => chat_agent(a, input, max_turns, history).await,
+            Agent::DeepSeek(a) => chat_agent(a, input, max_turns, history).await,
+            Agent::Ollama(a) => chat_agent(a, input, max_turns, history).await,
+        }
+    }
+
     /// 流式提示:每收到一段文本增量就调用 `on_text`,并在结束时返回最终回复。
     pub async fn stream<F>(&self, input: &str, max_turns: usize, mut on_text: F) -> Result<String>
     where
@@ -136,6 +156,35 @@ impl Agent {
         }
     }
 
+    /// 连续对话的流式提示:复用并自动更新 `history`。
+    pub async fn stream_chat<F>(
+        &self,
+        input: &str,
+        max_turns: usize,
+        history: &mut ChatHistory,
+        mut on_text: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        match self {
+            Agent::OpenAIResponses(a) => {
+                stream_chat_agent(a, input, max_turns, history, &mut on_text).await
+            }
+            Agent::OpenAICompletions(a) => {
+                stream_chat_agent(a, input, max_turns, history, &mut on_text).await
+            }
+            Agent::Anthropic(a) => {
+                stream_chat_agent(a, input, max_turns, history, &mut on_text).await
+            }
+            Agent::Gemini(a) => stream_chat_agent(a, input, max_turns, history, &mut on_text).await,
+            Agent::DeepSeek(a) => {
+                stream_chat_agent(a, input, max_turns, history, &mut on_text).await
+            }
+            Agent::Ollama(a) => stream_chat_agent(a, input, max_turns, history, &mut on_text).await,
+        }
+    }
+
     /// 流式提示并把文本增量直接写到标准输出。
     pub async fn stream_to_stdout(&self, input: &str, max_turns: usize) -> Result<String> {
         let mut stdout = std::io::stdout();
@@ -148,6 +197,48 @@ impl Agent {
         println!();
         Ok(response)
     }
+
+    /// 连续对话的流式提示并把文本增量直接写到标准输出。
+    pub async fn stream_chat_to_stdout(
+        &self,
+        input: &str,
+        max_turns: usize,
+        history: &mut ChatHistory,
+    ) -> Result<String> {
+        let mut stdout = std::io::stdout();
+        let response = self
+            .stream_chat(input, max_turns, history, |chunk| {
+                print!("{chunk}");
+                stdout.flush().map_err(Error::from)
+            })
+            .await?;
+        println!();
+        Ok(response)
+    }
+}
+
+async fn chat_agent<M>(
+    agent: &RigAgent<M>,
+    input: &str,
+    max_turns: usize,
+    history: &mut ChatHistory,
+) -> Result<String>
+where
+    M: RigCompletionModel + 'static,
+{
+    let response = agent
+        .prompt(input)
+        .with_history(history.clone())
+        .max_turns(max_turns)
+        .extended_details()
+        .await
+        .map_err(|e| Error::Rig(e.to_string()))?;
+
+    if let Some(messages) = response.messages {
+        history.extend(messages);
+    }
+
+    Ok(response.output)
 }
 
 async fn stream_agent<M, F>(
@@ -162,6 +253,40 @@ where
     F: FnMut(&str) -> Result<()>,
 {
     let mut stream = agent.stream_prompt(input).multi_turn(max_turns).await;
+    collect_stream(&mut stream, on_text, None).await
+}
+
+async fn stream_chat_agent<M, F>(
+    agent: &RigAgent<M>,
+    input: &str,
+    max_turns: usize,
+    history: &mut ChatHistory,
+    on_text: &mut F,
+) -> Result<String>
+where
+    M: RigCompletionModel + 'static,
+    M::StreamingResponse: GetTokenUsage + WasmCompatSend,
+    F: FnMut(&str) -> Result<()>,
+{
+    let mut stream = agent
+        .stream_prompt(input)
+        .with_history(history.clone())
+        .multi_turn(max_turns)
+        .await;
+    collect_stream(&mut stream, on_text, Some(history)).await
+}
+
+async fn collect_stream<S, R, F>(
+    stream: &mut S,
+    on_text: &mut F,
+    mut history: Option<&mut ChatHistory>,
+) -> Result<String>
+where
+    S: futures_util::Stream<
+            Item = std::result::Result<MultiTurnStreamItem<R>, rig::agent::StreamingError>,
+        > + Unpin,
+    F: FnMut(&str) -> Result<()>,
+{
     let mut streamed_text = String::new();
     let mut final_response = None;
 
@@ -172,6 +297,11 @@ where
                 streamed_text.push_str(&text.text);
             }
             MultiTurnStreamItem::FinalResponse(response) => {
+                if let Some(history) = history.as_deref_mut()
+                    && let Some(messages) = response.history()
+                {
+                    history.extend_from_slice(messages);
+                }
                 final_response = Some(response.response().to_owned());
             }
             _ => {}

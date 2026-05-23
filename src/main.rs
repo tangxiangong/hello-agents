@@ -1,12 +1,38 @@
-use hello_agents::{App, Model};
+use hello_agents::{App, Model, Result};
+use std::io::Write;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let app = App::from_model(Model::Compatible("gpt-5.5".to_owned()));
-    let prompt = "你好，请帮我查询一下今天北京的天气，然后根据天气推荐一个合适的旅游景点。";
-    println!("User: {}", prompt);
-    println!("Assistant: ");
-    let _result = app.stream_to_stdout(prompt).await.unwrap();
+    let mut history = app.new_chat_history();
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+
+    println!("连续对话已启动，输入 exit / quit / :q 退出。");
+
+    loop {
+        print!("\nUser> ");
+        stdout.flush()?;
+
+        let mut prompt = String::new();
+        if stdin.read_line(&mut prompt)? == 0 {
+            break;
+        }
+
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            continue;
+        }
+        if matches!(prompt, "exit" | "quit" | ":q") {
+            break;
+        }
+
+        print!("Assistant> ");
+        stdout.flush()?;
+        app.stream_chat_to_stdout(prompt, &mut history).await?;
+    }
+
+    Ok(())
 }
