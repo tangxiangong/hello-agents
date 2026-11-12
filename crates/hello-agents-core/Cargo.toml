@@ -1,0 +1,16 @@
+[package]
+name = "hello-agents-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dotenvy.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+rig.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serpapi.workspace = true
+tavily.workspace = true
+thiserror.workspace = true
+tokio.workspace = true

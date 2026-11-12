@@ -1,4 +1,4 @@
-use hello_agents::{App, Model, Result};
+use hello_agents_core::{App, Model, Result};
 use std::io::Write;
 
 #[tokio::main]

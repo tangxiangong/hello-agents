@@ -1,9 +1,12 @@
-[package]
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
 edition = "2024"
-name = "hello-agents"
 version = "0.1.0"
 
-[dependencies]
+[workspace.dependencies]
 dotenvy = "0.15"
 futures-util = "0.3"
 reqwest = { version = "0.13", features = ["json"] }
